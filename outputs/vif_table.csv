@@ -1,0 +1,5 @@
+Feature,VIF,Status
+log_views_lag1,inf,SEVERE -> Ridge
+log_views_lag2,inf,SEVERE -> Ridge
+log_growth_lag1,inf,SEVERE -> Ridge
+log_growth_lag2,8.77,Moderate
