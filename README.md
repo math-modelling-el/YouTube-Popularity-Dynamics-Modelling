@@ -2,12 +2,12 @@
 
 ## Overview
 
-This project studies how YouTube video popularity evolves over time by modeling it as a **second-order dynamical system**.
+This project studies how YouTube video popularity evolves over time by modelling it as a **second-order discrete dynamical system**.
 
-Unlike traditional approaches that focus only on prediction, this work aims to **interpret the growth behavior of videos**, answering questions such as:
+Unlike traditional approaches that focus only on prediction, this work aims to **interpret the growth behaviour of videos**, answering questions such as:
 
 - Will a video go viral?
-- Will it stabilize or decline?
+- Will it stabilise or decline?
 - Does it exhibit rapid spikes or smooth growth?
 
 ---
@@ -22,104 +22,145 @@ Most existing models (AR, ARIMA, ML models):
 
 This project shifts the focus from:
 
-> ❌ “What is the next value?”  
-to  
-> ✅ “What is the behavior of this system?”
+> "What is the next value?"  
+> to  
+> "What is the **behaviour** of this system?"
 
 ---
 
-## Core Idea
+## Core Model
 
-We model video views using a second-order relation:
+We model log-transformed video views using a second-order difference equation with momentum terms:
 
-\[
-V(t) = a * V(t-1) + b * V(t-2)
-\]
+```
+log_views(t) = α₁·log_views(t-1) + α₂·log_views(t-2)
+             + β₁·log_growth(t-1) + β₂·log_growth(t-2) + ε
+```
 
-Although mathematically similar to an AR(2) model, we reinterpret it as a **discrete dynamical system**.
+| Term | Role |
+|---|---|
+| α₁, α₂ | Position (level) — *where* the video currently is |
+| β₁, β₂ | Momentum — *how fast* it was growing |
 
-This allows us to capture:
-
-- **Trend** → growth or decline  
-- **Momentum** → acceleration or deceleration  
-- **Feedback effects** → recommendation-driven amplification  
-
----
-
-## ⚙️ Stability Analysis
-
-We analyze long-term behavior using the characteristic equation:
-
-\[
-r^2 - a r - b = 0
-\]
-
-Depending on the roots, the system exhibits:
-
-| Behavior | Interpretation |
-|--------|--------------|
-| Stable | Views saturate over time |
-| Unstable | Viral growth (explosion) |
-| Oscillatory | Fluctuating attention patterns |
+This captures trend, momentum, and feedback effects in a single interpretable equation.
 
 ---
 
-## Connection to YouTube Recommendation System
+## Stability Analysis
 
-Video growth is driven by feedback loops:
+The long-term behaviour is determined by the characteristic equation:
 
-### Positive Feedback
-More views → more engagement → more recommendations → more views  
-➡ Leads to **growth and acceleration**
+```
+r² - α₁·r - α₂ = 0
+```
 
-### Negative Feedback
-Low engagement → reduced reach → fewer views  
-➡ Leads to **decline or stabilization**
+| Root magnitude | Behaviour |
+|---|---|
+| All \|r\| < 1 | Stable — views saturate over time |
+| Any \|r\| ≥ 1 | Unstable — viral/explosive growth |
+| Complex roots | Oscillatory — fluctuating attention |
+
+---
+
+## Video Lifecycle Classification
+
+Using the fitted momentum coefficient β₁, each video observation is classified into one of three stages:
+
+| Momentum β₁·ΔV(t-1) | Stage |
+|---|---|
+| > 0.1 | Acceleration / Peak |
+| [−0.1, 0.1] | Moderate Growth |
+| < −0.1 | Deceleration / Decline |
+
+---
+
+## Model Comparison
+
+Four models are built and compared on a 70/30 temporal train/test split:
+
+| Model | Features | Estimator |
+|---|---|---|
+| AR(1) Baseline | V(t-1) | OLS / Ridge |
+| AR(2) Baseline | V(t-1), V(t-2) | OLS / Ridge |
+| **Proposed (2nd-order + Momentum)** | V(t-1), V(t-2), ΔV(t-1), ΔV(t-2) | OLS / Ridge |
+| ARIMA(1,0,1) Benchmark | per-series time series | ARIMA |
+
+Statistical significance of improvements is verified using **paired t-tests**.
 
 ---
 
 ## Dataset
 
-- **Source:** Kaggle (YouTube Trending Dataset 2025)
-- **Size:** ~670,000 records
+- **Source:** Kaggle — YouTube Trending Dataset 2025
+- **Size:** ~670,000 records across 93 countries
 - **Granularity:** Daily snapshots of trending videos
-- **Countries:** US, IN, IL, IQ, IS, etc.
+- **Date range:** February 2025 – July 2025
 
-### Features Used
+### Features used
 
-- Views (derived)
-- Likes
-- Comments
-- Country
-- Published Date
-- Fetched Date
+| Feature | Description |
+|---|---|
+| `views` | Raw daily view count |
+| `log_views` | log1p-transformed views |
+| `log_growth` | First difference of log_views (momentum) |
+| `log_acceleration` | Second difference of log_views |
+| `log_views_lag1/2` | Lagged position terms |
+| `log_growth_lag1/2` | Lagged momentum terms |
 
-⚠️ **Note:** Dataset is not included due to size constraints.
-
----
-
-## Limitation
-
-- Only captures the **trending phase** of videos  
-- Does not include full lifecycle (pre-trending or long-term decay)
+> Dataset not included due to size. Place the CSV at `dataset/modified_dataset.csv`.
 
 ---
 
-## 📁 Project Structure
+## Limitations
+
+- Captures only the **trending phase** — no pre-trend or long-tail decay
+- Global model coefficients may not generalise to all content types
+- ARIMA benchmark evaluated on a 100-video subsample only
+
+---
+
+## Project Structure
+
 ```
-project/
-├── data/
+mm_el/
+├── dataset/
+│   └── modified_dataset.csv      # raw data (not tracked)
 ├── notebooks/
-│ ├── 01_eda.ipynb
-│ ├── 02_model_experiments.ipynb
-│ └── 03_results_analysis.ipynb
+│   ├── eda.ipynb                  # Phase 1 — EDA & data cleaning
+│   ├── model_experiments.ipynb    # Phases 2, 3, 5, 6 — models & analysis
+│   └── result_analysis.ipynb      # Results summary
+├── outputs/                       # Generated figures and CSVs
+│   ├── acf_pacf_analysis.png      # Fig 1 — ACF/PACF validation
+│   ├── model_comparison.png       # Fig 2 — model RMSE/MAE/R²
+│   ├── video_trajectories.png     # Fig 4 — actual vs predicted
+│   ├── lifecycle_distribution.png # Fig 6 — lifecycle stage counts
+│   ├── stability_analysis.png     # Fig 7 — characteristic roots
+│   ├── model_comparison.csv
+│   └── vif_table.csv
 ├── src/
-│ ├── data_pipeline.py
-│ ├── model.py
-│ └── evaluation.py
-├── figures/
-├── paper/
+│   ├── data_pipeline.py
+│   ├── model.py
+│   ├── evaluation.py
+│   └── results.py
+├── .venv/                         # Virtual environment (not tracked)
+├── requirements.txt
 └── README.md
 ```
 
+---
 
+## Setup
+
+```bash
+# Create and activate virtual environment
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install pandas numpy matplotlib seaborn scikit-learn scipy statsmodels jupyterlab ipykernel
+
+# Register Jupyter kernel
+.venv\Scripts\python.exe -m ipykernel install --user --name mm_el --display-name "Python (mm_el)"
+
+# Launch JupyterLab
+.venv\Scripts\python.exe -m jupyterlab
+```
+
+Then open `notebooks/model_experiments.ipynb` and select the **Python (mm_el)** kernel.
