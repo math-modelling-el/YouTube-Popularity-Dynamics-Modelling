@@ -2,35 +2,18 @@
 
 ## Overview
 
-This project studies how YouTube video popularity evolves over time by modelling it as a **second-order discrete dynamical system**.
+This project studies how YouTube video popularity evolves over time by modelling it as a **second-order discrete dynamical system**. Rather than treating view prediction as a black-box task, the goal is to interpret the growth behaviour of videos — capturing trend, momentum, and feedback effects in a single equation.
 
-Unlike traditional approaches that focus only on prediction, this work aims to **interpret the growth behaviour of videos**, answering questions such as:
-
-- Will a video go viral?
-- Will it stabilise or decline?
-- Does it exhibit rapid spikes or smooth growth?
-
----
-
-## Motivation
-
-Most existing models (AR, ARIMA, ML models):
-
-- Predict future views based on past values
-- Treat the problem as a **black-box prediction task**
-- Do not explain *why* a video grows or declines
-
-This project shifts the focus from:
-
-> "What is the next value?"  
-> to  
-> "What is the **behaviour** of this system?"
+Key questions addressed:
+- Does a video exhibit rapid acceleration or steady growth?
+- When does growth peak and begin to decelerate?
+- Is the system dynamically stable over time?
 
 ---
 
 ## Core Model
 
-We model log-transformed video views using a second-order difference equation with momentum terms:
+Log-transformed view counts are modelled using a second-order difference equation with explicit momentum terms:
 
 ```
 log_views(t) = α₁·log_views(t-1) + α₂·log_views(t-2)
@@ -39,83 +22,69 @@ log_views(t) = α₁·log_views(t-1) + α₂·log_views(t-2)
 
 | Term | Role |
 |---|---|
-| α₁, α₂ | Position (level) — *where* the video currently is |
-| β₁, β₂ | Momentum — *how fast* it was growing |
+| α₁, α₂ | Position — level lags (where the video currently is) |
+| β₁, β₂ | Momentum — growth rate lags (how fast it was growing) |
 
-This captures trend, momentum, and feedback effects in a single interpretable equation.
-
----
-
-## Stability Analysis
-
-The long-term behaviour is determined by the characteristic equation:
-
-```
-r² - α₁·r - α₂ = 0
-```
-
-| Root magnitude | Behaviour |
-|---|---|
-| All \|r\| < 1 | Stable — views saturate over time |
-| Any \|r\| ≥ 1 | Unstable — viral/explosive growth |
-| Complex roots | Oscillatory — fluctuating attention |
+Fitted coefficients: α₁ = 0.9071, α₂ = 0.0919, β₁ = 0.8152, β₂ = −0.0733
 
 ---
 
-## Video Lifecycle Classification
+## Results
 
-Using the fitted momentum coefficient β₁, each video observation is classified into one of three stages:
+### Model Comparison (70/30 temporal train/test split)
 
-| Momentum β₁·ΔV(t-1) | Stage |
-|---|---|
-| > 0.1 | Acceleration / Peak |
-| [−0.1, 0.1] | Moderate Growth |
-| < −0.1 | Deceleration / Decline |
+| Model | RMSE | MAE | R² | RMSE vs AR(1) |
+|---|---|---|---|---|
+| AR(1) baseline | 0.0395 | 0.0285 | 0.9996 | — |
+| AR(2) baseline | 0.0173 | 0.0095 | 0.9999 | +56.26% |
+| **Proposed (2nd-order + Momentum)** | **0.0170** | **0.0091** | **0.9999** | **+57.00%** |
+| ARIMA(1,0,1) benchmark | 0.0621 | 0.0450 | 0.9982 | −57.31% |
 
----
+Improvements of the proposed model over both baselines are statistically significant (paired t-test, p ≈ 0).
 
-## Model Comparison
+### Multicollinearity & Regularisation
 
-Four models are built and compared on a 70/30 temporal train/test split:
+VIF analysis revealed perfect multicollinearity among lag features (VIF = ∞ for three of four features), confirming that Ridge Regression (λ = 1.0) is required in place of OLS.
 
-| Model | Features | Estimator |
+### Video Lifecycle Classification
+
+Each observation is classified by momentum score β₁·ΔV(t-1):
+
+| Stage | Threshold | Unique Videos |
 |---|---|---|
-| AR(1) Baseline | V(t-1) | OLS / Ridge |
-| AR(2) Baseline | V(t-1), V(t-2) | OLS / Ridge |
-| **Proposed (2nd-order + Momentum)** | V(t-1), V(t-2), ΔV(t-1), ΔV(t-2) | OLS / Ridge |
-| ARIMA(1,0,1) Benchmark | per-series time series | ARIMA |
+| Acceleration / Peak | momentum > 0.1 | 6,688 |
+| Moderate Growth | −0.1 to 0.1 | 17,914 |
+| Deceleration / Decline | momentum < −0.1 | 4 |
 
-Statistical significance of improvements is verified using **paired t-tests**.
+### Stability Analysis
+
+Characteristic equation: r² − 0.9071·r − 0.0919 = 0
+
+| Root | Magnitude | Status |
+|---|---|---|
+| r₁ | 0.9990 | Stable (< 1) |
+| r₂ | 0.0920 | Stable (< 1) |
+
+Both roots lie inside the unit circle — the model predicts bounded, realistic growth trajectories.
 
 ---
 
 ## Dataset
 
 - **Source:** Kaggle — YouTube Trending Dataset 2025
-- **Size:** ~670,000 records across 93 countries
-- **Granularity:** Daily snapshots of trending videos
+- **Raw records:** ~670,000 across 93 countries
+- **After preprocessing:** 284,855 observations, 57,891 unique video-country pairs
 - **Date range:** February 2025 – July 2025
-
-### Features used
+- **Granularity:** Daily snapshots of trending videos
 
 | Feature | Description |
 |---|---|
-| `views` | Raw daily view count |
-| `log_views` | log1p-transformed views |
-| `log_growth` | First difference of log_views (momentum) |
-| `log_acceleration` | Second difference of log_views |
+| `log_views` | log1p-transformed cumulative view count |
+| `log_growth` | First difference of log_views (momentum proxy) |
 | `log_views_lag1/2` | Lagged position terms |
 | `log_growth_lag1/2` | Lagged momentum terms |
 
 > Dataset not included due to size. Place the CSV at `dataset/modified_dataset.csv`.
-
----
-
-## Limitations
-
-- Captures only the **trending phase** — no pre-trend or long-tail decay
-- Global model coefficients may not generalise to all content types
-- ARIMA benchmark evaluated on a 100-video subsample only
 
 ---
 
@@ -124,28 +93,36 @@ Statistical significance of improvements is verified using **paired t-tests**.
 ```
 mm_el/
 ├── dataset/
-│   └── modified_dataset.csv      # raw data (not tracked)
+│   └── modified_dataset.csv           # raw data (not tracked)
 ├── notebooks/
-│   ├── eda.ipynb                  # Phase 1 — EDA & data cleaning
-│   ├── model_experiments.ipynb    # Phases 2, 3, 5, 6 — models & analysis
-│   └── result_analysis.ipynb      # Results summary
-├── outputs/                       # Generated figures and CSVs
-│   ├── acf_pacf_analysis.png      # Fig 1 — ACF/PACF validation
-│   ├── model_comparison.png       # Fig 2 — model RMSE/MAE/R²
-│   ├── video_trajectories.png     # Fig 4 — actual vs predicted
-│   ├── lifecycle_distribution.png # Fig 6 — lifecycle stage counts
-│   ├── stability_analysis.png     # Fig 7 — characteristic roots
-│   ├── model_comparison.csv
-│   └── vif_table.csv
-├── src/
-│   ├── data_pipeline.py
-│   ├── model.py
-│   ├── evaluation.py
-│   └── results.py
-├── .venv/                         # Virtual environment (not tracked)
+│   ├── eda.ipynb                       # Phase 1 — EDA & data cleaning
+│   └── model_experiments.ipynb        # Phases 2–6 — feature engineering,
+│                                      #   model building, lifecycle & stability
+├── outputs/
+│   ├── acf_pacf_analysis.pdf          # ACF/PACF validation plots
+│   ├── model_comparison.pdf           # RMSE/MAE/R² bar charts
+│   ├── video_trajectories.pdf         # Actual vs predicted trajectories
+│   ├── lifecycle_distribution.pdf     # Lifecycle stage distribution
+│   ├── stability_analysis.pdf         # Characteristic roots — unit circle
+│   ├── model_comparison.csv           # Numeric results table
+│   └── vif_table.csv                  # VIF scores per feature
+├── .venv/                             # Virtual environment (not tracked)
 ├── requirements.txt
 └── README.md
 ```
+
+---
+
+## Notebook Phases
+
+| Notebook | Phase | Content |
+|---|---|---|
+| `eda.ipynb` | 1 | Data loading, cleaning, log transforms, exploratory analysis |
+| `model_experiments.ipynb` | 2 | Lag features, ACF/PACF, VIF analysis |
+| | 3 | Four-model build & comparison, paired t-tests |
+| | 4 | Category-wise analysis (requires `category_id` column) |
+| | 5 | Video lifecycle classification |
+| | 6 | Stability analysis — characteristic roots |
 
 ---
 
@@ -154,7 +131,7 @@ mm_el/
 ```bash
 # Create and activate virtual environment
 python -m venv .venv
-.venv\Scripts\python.exe -m pip install pandas numpy matplotlib seaborn scikit-learn scipy statsmodels jupyterlab ipykernel
+.venv\Scripts\python.exe -m pip install pandas numpy matplotlib scikit-learn scipy statsmodels jupyterlab ipykernel
 
 # Register Jupyter kernel
 .venv\Scripts\python.exe -m ipykernel install --user --name mm_el --display-name "Python (mm_el)"
@@ -163,4 +140,13 @@ python -m venv .venv
 .venv\Scripts\python.exe -m jupyterlab
 ```
 
-Then open `notebooks/model_experiments.ipynb` and select the **Python (mm_el)** kernel.
+Open `notebooks/model_experiments.ipynb` and select the **Python (mm_el)** kernel.
+
+---
+
+## Limitations
+
+- Covers only the **trending phase** — no pre-trend or long-tail decay data
+- Global coefficients may not generalise across all content categories
+- ARIMA benchmark evaluated on a 100-video subsample only
+- Near-zero Deceleration/Decline observations suggest the dataset skews toward actively growing videos
